@@ -1,12 +1,15 @@
 
 #include "Arduino.h"
-#include <ESP8266WiFi.h>
+#include <FS.h>
+#include <SPIFFS.h>
+#include <WiFi.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <PubSubClient.h>
 
-#define VD_POWER_PIN D1 // 3.3v for the voltage divider
-#define DS_PIN D2       // DS18B20 data pin
+#define POWER_TRIGGER_PIN 32   // Power trigger pin
+#define DS_PIN 4               // DS18B20 data pin
+#define BATTERY_VOLTAGE_PIN 34 // Battery voltage pin
 
 // Temperature MQTT Topics
 #define MQTT_PUB_TEMP "vanntemp/klopp/temperature"
@@ -15,7 +18,7 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE (50)
+#define MSG_BUFFER_SIZE (128)
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
@@ -136,7 +139,10 @@ void publish(float temp, float voltage, int rawVoltage, float batteryLevel)
     }
   }
 
-  snprintf(msg, MSG_BUFFER_SIZE, "{\"t\":%.2f,\"v\":%.2f,\"b\":%.2f,\"a\":%i}", temp, voltage, batteryLevel, rawVoltage);
+  // Calculate battery level where 3.3v is 0% and 4.2v is 100%
+  float batteryLevelReal = (float)(voltage - 3.3f) / (4.2f - 3.3f) * 100.0f;
+
+  snprintf(msg, MSG_BUFFER_SIZE, "{\"t\":%.2f,\"v\":%.2f,\"bg\":%.2f,\"bn\":%.2f,\"a\":%i}", temp, voltage, batteryLevel, batteryLevelReal, rawVoltage);
   Serial.print("Publish message: ");
   Serial.println(msg);
   client.publish(MQTT_PUB_TEMP, msg);
@@ -145,51 +151,51 @@ void publish(float temp, float voltage, int rawVoltage, float batteryLevel)
 
 void setup()
 {
+  analogReadResolution(12);
   Serial.begin(115200);
   Serial.setTimeout(2000);
 
-  // initialize LED digital pin as an output.
-  pinMode(VD_POWER_PIN, OUTPUT);
-  pinMode(DS_PIN, INPUT);
-  pinMode(A0, INPUT);
+  // // initialize LED digital pin as an output.
+  pinMode(POWER_TRIGGER_PIN, OUTPUT);
+  // pinMode(DS_PIN, INPUT_PULLDOWN);
+  pinMode(BATTERY_VOLTAGE_PIN, INPUT_PULLDOWN);
 
   // Wait for serial to initialize.
   while (!Serial)
   {
   }
 
-  String host = read_sec_from_file("mqtt_host");
-  int port = 1883;
-
-  client.setServer(host.c_str(), port);
-
-  digitalWrite(VD_POWER_PIN, HIGH);
-  delay(10);
+  digitalWrite(POWER_TRIGGER_PIN, HIGH);
+  delay(100);
 
   float temp = read_temp();
   int rawVoltage = 0;
   for (int i = 0; i < 10; i++)
   {
-    rawVoltage += analogRead(A0);
+    rawVoltage += analogRead(BATTERY_VOLTAGE_PIN);
     delay(10);
   }
   rawVoltage /= 10;
   // Use map function and return 2 decimals for voltage and battery level
 
-  float voltage = (float)map(rawVoltage, 0, 1023, 0, 420) / 100.0;
-  float batteryLevel = (float)map(rawVoltage, 0, 1023, 0, 10000) / 100.0;
+  float voltage = (float)map(rawVoltage, 0, 4095.0f, 0, 420) / 100.0;
+  float batteryLevel = (float)map(rawVoltage, 0, 4095.0f, 0, 10000) / 100.0;
 
-  // float voltage = (float)rawVoltage * (4.2f / 1023.0f);
-  // float batteryLevel = (float)rawVoltage * (100.0f / 1023.0f);
+  String host = read_sec_from_file("mqtt_host");
+  int port = 1883;
 
-  digitalWrite(VD_POWER_PIN, LOW);
+  client.setServer(host.c_str(), port);
+
+  digitalWrite(POWER_TRIGGER_PIN, LOW);
 
   Serial.printf("Battery level: %.2f\n", batteryLevel);
   Serial.printf("Raw voltage: %d\n", rawVoltage);
   Serial.printf("Voltage: %.2f\n", voltage);
+
   setup_wifi();
   publish(temp, voltage, rawVoltage, batteryLevel);
-  ESP.deepSleep(300e6, WAKE_RF_DISABLED);
+  Serial.flush();
+  ESP.deepSleep(300e6);
 }
 
 void loop()
