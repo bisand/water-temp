@@ -140,7 +140,7 @@ void publish(float temp, float voltage, int rawVoltage, float batteryLevel)
   }
 
   // Calculate battery level where 3.3v is 0% and 4.2v is 100%
-  float batteryLevelReal = (float)(voltage - 3.3f) / (4.2f - 3.3f) * 100.0f;
+  float batteryLevelReal = (float)(voltage - 3.4f) / (4.15f - 3.4f) * 100.0f;
 
   snprintf(msg, MSG_BUFFER_SIZE, "{\"t\":%.2f,\"v\":%.2f,\"bg\":%.2f,\"bn\":%.2f,\"a\":%i}", temp, voltage, batteryLevel, batteryLevelReal, rawVoltage);
   Serial.print("Publish message: ");
@@ -176,10 +176,10 @@ void setup()
     delay(10);
   }
   rawVoltage /= 10;
-  // Use map function and return 2 decimals for voltage and battery level
 
-  float voltage = (float)map(rawVoltage, 0, 4095.0f, 0, 420) / 100.0;
-  float batteryLevel = (float)map(rawVoltage, 0, 4095.0f, 0, 10000) / 100.0;
+  // 4.15v = 2.615v = 3250 raw value from ADC using voltage divider 33k and 55k
+  float voltage = (float)map(rawVoltage, 0, 3250.0f, 0, 415) / 100.0;
+  float batteryLevel = (float)map(rawVoltage, 0, 3250.0f, 0, 10000) / 100.0;
 
   String host = read_sec_from_file("mqtt_host");
   int port = 1883;
