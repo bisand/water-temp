@@ -166,20 +166,21 @@ void setup()
   }
 
   digitalWrite(POWER_TRIGGER_PIN, HIGH);
-  delay(100);
+  delay(500);
 
+  int samples = 20;
   float temp = read_temp();
-  int rawVoltage = 0;
-  for (int i = 0; i < 10; i++)
+  int analogReading = 0;
+  for (int i = 0; i < samples; i++)
   {
-    rawVoltage += analogRead(BATTERY_VOLTAGE_PIN);
+    analogReading += analogRead(BATTERY_VOLTAGE_PIN);
     delay(10);
   }
-  rawVoltage /= 10;
+  analogReading /= samples;
 
   // 4.15v = 2.615v = 3250 raw value from ADC using voltage divider 33k and 55k
-  float voltage = (float)map(rawVoltage, 0, 3250.0f, 0, 415) / 100.0;
-  float batteryLevel = (float)map(rawVoltage, 0, 3250.0f, 0, 10000) / 100.0;
+  float voltage = (float)map(analogReading, 0, 3060, 0, 406) / 100.0;
+  float batteryLevel = (float)map(voltage, 0, 420, 0, 10000) / 100.0;
 
   String host = read_sec_from_file("mqtt_host");
   int port = 1883;
@@ -189,13 +190,13 @@ void setup()
   digitalWrite(POWER_TRIGGER_PIN, LOW);
 
   Serial.printf("Battery level: %.2f\n", batteryLevel);
-  Serial.printf("Raw voltage: %d\n", rawVoltage);
+  Serial.printf("Raw voltage: %d\n", analogReading);
   Serial.printf("Voltage: %.2f\n", voltage);
 
   setup_wifi();
-  publish(temp, voltage, rawVoltage, batteryLevel);
+  publish(temp, voltage, analogReading, batteryLevel);
   Serial.flush();
-  ESP.deepSleep(300e6);
+  ESP.deepSleep(60e6);
 }
 
 void loop()
