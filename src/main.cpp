@@ -6,6 +6,8 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <PubSubClient.h>
+#include <iostream>
+#include <vector>
 
 #define POWER_TRIGGER_PIN 32   // Power trigger pin
 #define DS_PIN 4               // DS18B20 data pin
@@ -26,14 +28,48 @@ OneWire oneWire(DS_PIN);
 // Pass our oneWire reference to Dallas Temperature sensor
 DallasTemperature sensors(&oneWire);
 
-double rawHigh = 100.0;
-double rawLow = 0.75;
-double referenceHigh = 100.0;
-double referenceLow = 0.0;
-double rawRange = rawHigh - rawLow;
-double referenceRange = referenceHigh - referenceLow;
+// Define a struct to represent the mapping table entries
+struct MappingEntry
+{
+  int analogValue;
+  float voltage;
+};
 
-int readings = 1;
+// Analog to voltage mapping table
+std::vector<MappingEntry> voltageMappingTable = {
+    {0, 0.0f},
+    {2620, 3.61f},
+    {2625, 3.611f},
+    {3060, 4.06f},
+    {3250, 4.15f}};
+
+// Function to map analog reading to voltage using linear interpolation
+float mapAnalogToVoltage(int analogReading, const std::vector<MappingEntry> &table)
+{
+  for (size_t i = 0; i < table.size() - 1; ++i)
+  {
+    int x0 = table[i].analogValue;
+    float y0 = table[i].voltage;
+    int x1 = table[i + 1].analogValue;
+    float y1 = table[i + 1].voltage;
+
+    if (analogReading >= x0 && analogReading <= x1)
+    {
+      // Linear interpolation
+      float voltage = y0 + (analogReading - x0) * (y1 - y0) / (x1 - x0);
+      return voltage;
+    }
+  }
+  // If the reading is out of range, return the closest boundary value
+  if (analogReading < table[0].analogValue)
+  {
+    return table[0].voltage;
+  }
+  else
+  {
+    return table[table.size() - 1].voltage;
+  }
+}
 
 String read_sec_from_file(const char *sec_file)
 {
@@ -71,12 +107,21 @@ String read_sec_from_file(const char *sec_file)
   return data;
 }
 
-double read_temp()
+float read_temp()
 {
+  float rawHigh = 100.0;
+  float rawLow = 0.75;
+  float referenceHigh = 100.0;
+  float referenceLow = 0.0;
+  float rawRange = rawHigh - rawLow;
+  float referenceRange = referenceHigh - referenceLow;
+
+  int readings = 1;
+
   sensors.begin();
   sensors.setResolution(12);
 
-  double accumulatedValue = 0.0;
+  float accumulatedValue = 0.0;
   for (int i = 0; i < readings; i++)
   {
     // New temperature readings
@@ -84,9 +129,9 @@ double read_temp()
     // Temperature in Celsius degrees
     accumulatedValue += sensors.getTempCByIndex(0);
   }
-  double rawValue = accumulatedValue / readings;
+  float rawValue = accumulatedValue / readings;
 
-  double correctedValue = (((rawValue - rawLow) * referenceRange) / rawRange) + referenceLow;
+  float correctedValue = (((rawValue - rawLow) * referenceRange) / rawRange) + referenceLow;
   Serial.printf("\nTemperature: %.1f °C (Raw: %.1f)\n", correctedValue, rawValue);
 
   return correctedValue;
@@ -139,10 +184,10 @@ void publish(float temp, float voltage, int rawVoltage, float batteryLevel)
     }
   }
 
-  // Calculate battery level where 3.3v is 0% and 4.2v is 100%
-  float batteryLevelReal = (float)(voltage - 3.4f) / (4.15f - 3.4f) * 100.0f;
+  // Calculate battery level where 2.9v is 0% and 4.15v is 100%
+  float netBatteryLevelReal = (float)((voltage - 2.9f) / (4.15f - 2.9f)) * 100.0f;
 
-  snprintf(msg, MSG_BUFFER_SIZE, "{\"t\":%.2f,\"v\":%.2f,\"bg\":%.2f,\"bn\":%.2f,\"a\":%i}", temp, voltage, batteryLevel, batteryLevelReal, rawVoltage);
+  snprintf(msg, MSG_BUFFER_SIZE, "{\"t\":%.2f,\"v\":%.2f,\"bg\":%.2f,\"bn\":%.2f,\"a\":%i}", temp, voltage, batteryLevel, netBatteryLevelReal, rawVoltage);
   Serial.print("Publish message: ");
   Serial.println(msg);
   client.publish(MQTT_PUB_TEMP, msg);
@@ -179,8 +224,9 @@ void setup()
   analogReading /= samples;
 
   // 4.15v = 2.615v = 3250 raw value from ADC using voltage divider 33k and 55k
-  float voltage = (float)map(analogReading, 0, 3060, 0, 406) / 100.0;
-  float batteryLevel = (float)map(voltage, 0, 420, 0, 10000) / 100.0;
+  // float voltage = (float)map(analogReading, 0, 3060, 0, 406) / 100.0;
+  float voltage = mapAnalogToVoltage(analogReading, voltageMappingTable);
+  float grossBatteryLevel = (voltage - 0.0f) / (4.2f - 0.0f) * 100.0f;
 
   String host = read_sec_from_file("mqtt_host");
   int port = 1883;
@@ -189,12 +235,12 @@ void setup()
 
   digitalWrite(POWER_TRIGGER_PIN, LOW);
 
-  Serial.printf("Battery level: %.2f\n", batteryLevel);
+  Serial.printf("Battery level: %.2f\n", grossBatteryLevel);
   Serial.printf("Raw voltage: %d\n", analogReading);
   Serial.printf("Voltage: %.2f\n", voltage);
 
   setup_wifi();
-  publish(temp, voltage, analogReading, batteryLevel);
+  publish(temp, voltage, analogReading, grossBatteryLevel);
   Serial.flush();
   ESP.deepSleep(60e6);
 }
