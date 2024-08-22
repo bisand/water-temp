@@ -38,8 +38,9 @@ struct MappingEntry
 // Analog to voltage mapping table
 std::vector<MappingEntry> voltageMappingTable = {
     {0, 0.0f},
-    {2620, 3.61f},
-    {2625, 3.611f},
+    {2505, 3.467f},
+    {2544, 3.516f},
+    {2642, 3.61f},
     {3060, 4.06f},
     {3250, 4.15f}};
 
